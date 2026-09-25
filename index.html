@@ -73,7 +73,16 @@
   .status b { font-variant-numeric: tabular-nums; }
   .found { border: 2px solid var(--ok); background: var(--ok-soft); }
   .found h2 { color: var(--ok); }
-  .summary { white-space: pre-wrap; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 14px; margin: 10px 0 0; }
+  a.btn { text-decoration: none; text-align: center; }
+  .guide { display: grid; gap: 10px; margin-top: 12px; }
+  .step { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+  .step h3 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 6px; letter-spacing: .03em; }
+  .step dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0; }
+  .step dt { color: var(--muted); font-size: 14px; }
+  .step dd { margin: 0; font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .step ol { margin: 0; padding-left: 20px; font-size: 16px; font-variant-numeric: tabular-nums; }
+  .step ol li { margin: 3px 0; }
+  .step ol .note { font-size: 13px; }
   .tbl-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
   th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
@@ -234,13 +243,15 @@
   <!-- 找到了 -->
   <section class="card found hidden" id="foundCard" aria-live="assertive">
     <h2 id="foundTitle">找到符合的車次！</h2>
-    <p style="margin:0">請立即到高鐵官網完成訂位（需輸入驗證碼），照下面資料填寫：</p>
-    <div class="summary" id="summary"></div>
+    <p style="margin:0">T-EX 和高鐵官網都不接受外部帶入條件，打開後請照這份小抄選擇（順序和 T-EX 訂票畫面相同）：</p>
+    <div class="guide" id="guide"></div>
     <div class="btns">
-      <a class="btn primary" href="https://irs.thsrc.com.tw/IMINT/" target="_blank" rel="noopener" style="text-decoration:none">前往高鐵網路訂票 ↗</a>
+      <a class="btn primary hidden" id="texBtn" href="#" rel="noopener">開啟 T-EX App</a>
+      <a class="btn" id="irsBtn" href="https://irs.thsrc.com.tw/IMINT/" target="_blank" rel="noopener">高鐵網路訂票 ↗</a>
       <button class="btn" id="copyBtn" type="button">複製訂票資料</button>
       <button class="btn" id="silenceBtn" type="button">關閉提示音</button>
     </div>
+    <p class="note" id="texNote"></p>
   </section>
 
   <!-- 狀態 -->
@@ -604,10 +615,58 @@ function beep() {
     });
   } catch {}
 }
+// ---------- 開啟 T-EX ----------
+// T-EX 沒有公開的深層連結可帶入起訖站或日期，只能打開 App 本身，條件由使用者照小抄選擇
+const TEX_ANDROID_PKG = 'tw.com.thsrc.texpress';
+const TEX_PLAY_URL = `https://play.google.com/store/apps/details?id=${TEX_ANDROID_PKG}`;
+const TEX_IOS_URL = 'https://apps.apple.com/tw/app/id468963664';
+const platform = /android/i.test(navigator.userAgent) ? 'android'
+  : /iphone|ipad|ipod/i.test(navigator.userAgent) || (/macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1) ? 'ios'
+  : 'desktop';
+(function setupTexButton() {
+  const btn = $('texBtn');
+  if (platform === 'android') {
+    // 裝了 T-EX 會直接開啟；Chrome 找不到可開啟的畫面時會轉到 Google Play，在那裡按「開啟」
+    btn.href = `intent://#Intent;package=${TEX_ANDROID_PKG};S.browser_fallback_url=${encodeURIComponent(TEX_PLAY_URL)};end`;
+    $('texNote').textContent = '如果按了沒有直接進入 T-EX，會轉到 Google Play 的 T-EX 頁面，按「開啟」即可。';
+  } else if (platform === 'ios') {
+    btn.href = TEX_IOS_URL;
+    btn.target = '_blank';
+    $('texNote').textContent = '會先打開 App Store 的 T-EX 頁面，按「打開」進入 App（T-EX 沒有提供讓網頁直接開啟的方式）。';
+  } else {
+    $('texNote').textContent = 'T-EX 是手機 App；用手機開啟這個網頁時，這裡會多一個「開啟 T-EX App」按鈕。';
+    return;
+  }
+  btn.classList.remove('hidden');
+  $('irsBtn').classList.remove('primary');
+  btn.addEventListener('click', () => silence());
+})();
+if (platform === 'desktop') $('irsBtn').classList.add('primary');
+
+function renderGuide(f, matches) {
+  const cnt = Object.entries(f.counts).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n} 張`).join('、');
+  const cabin = { std: '標準車廂', biz: '商務車廂', any: '標準或商務皆可' }[f.cabin];
+  const trains = matches.slice(0, 6).map((r) =>
+    `<li><b>${esc(r.no)}</b>　${esc(r.dep)} → ${esc(r.arr)} <span class="note">標準 ${SEAT_LABEL[r.std]}・商務 ${SEAT_LABEL[r.biz]}</span></li>`).join('');
+  $('guide').innerHTML = `
+    <div class="step"><h3>1　乘車資料輸入</h3><dl>
+      <dt>起程站</dt><dd>${stationName[f.from]}</dd>
+      <dt>到達站</dt><dd>${stationName[f.to]}</dd>
+      <dt>去程日期</dt><dd>${md(f.date)}</dd>
+      <dt>出發時間</dt><dd>${esc(matches[0].dep)} 左右</dd>
+      <dt>票數</dt><dd>${cnt}</dd>
+      <dt>車廂</dt><dd>${cabin}</dd>
+    </dl></div>
+    <div class="step"><h3>2　車次查詢結果：選以下任一班</h3><ol>${trains}</ol></div>
+    <div class="step"><h3>3　付款</h3><dl><dt>付款方式</dt><dd>${esc(f.pay)}</dd></dl></div>`;
+}
+
+let lastSummary = '';
 function alarm(f, matches) {
   const first = matches[0];
   $('foundTitle').textContent = `找到 ${matches.length} 班符合的車次！`;
-  $('summary').textContent = summaryText(f, matches);
+  renderGuide(f, matches);
+  lastSummary = summaryText(f, matches);
   $('foundCard').classList.remove('hidden');
   $('foundCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
   silence();
@@ -625,7 +684,7 @@ function silence() {
 }
 $('silenceBtn').onclick = silence;
 $('copyBtn').onclick = async () => {
-  try { await navigator.clipboard.writeText($('summary').textContent); $('copyBtn').textContent = '已複製'; }
+  try { await navigator.clipboard.writeText(lastSummary); $('copyBtn').textContent = '已複製'; }
   catch { $('copyBtn').textContent = '複製失敗，請手動選取'; }
   setTimeout(() => { $('copyBtn').textContent = '複製訂票資料'; }, 2000);
 };
