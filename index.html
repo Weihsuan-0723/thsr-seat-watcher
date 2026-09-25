@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>高鐵餘票監看器</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#d9531e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="高鐵監看">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --ink: #1d1d1b; --muted: #6b6a66; --line: #e3e1db;
+    --accent: #d9531e; --accent-ink: #ffffff; --accent-soft: #fbe9e1;
+    --ok: #1f7a4d; --ok-soft: #e2f3ea; --warn: #9a6400; --warn-soft: #fbf0d9;
+    --bad: #a3322b; --bad-soft: #f8e3e1; --focus: #2f6fdb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #151514; --card: #1f1f1d; --ink: #ecebe7; --muted: #a09e98; --line: #34332f;
+      --accent: #f0703b; --accent-ink: #1a0d06; --accent-soft: #3a2218;
+      --ok: #5fd49a; --ok-soft: #173326; --warn: #f0c060; --warn-soft: #362b12;
+      --bad: #f08a80; --bad-soft: #3a1c19; --focus: #7aa7ff;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #151514; --card: #1f1f1d; --ink: #ecebe7; --muted: #a09e98; --line: #34332f;
+    --accent: #f0703b; --accent-ink: #1a0d06; --accent-soft: #3a2218;
+    --ok: #5fd49a; --ok-soft: #173326; --warn: #f0c060; --warn-soft: #362b12;
+    --bad: #f08a80; --bad-soft: #3a1c19; --focus: #7aa7ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", "Microsoft JhengHei", "PingFang TC", sans-serif;
+  }
+  .wrap {
+    max-width: 980px; margin: 0 auto;
+    padding: calc(20px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px))
+             calc(60px + env(safe-area-inset-bottom, 0px)) calc(16px + env(safe-area-inset-left, 0px));
+  }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  header h1 { font-size: 22px; margin: 0; letter-spacing: .02em; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .grow { flex: 1; }
+  .pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--line); color: var(--muted); white-space: nowrap; }
+  .pill.on { background: var(--ok-soft); color: var(--ok); }
+  .pill.mock { background: var(--warn-soft); color: var(--warn); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+  .card h2 { font-size: 16px; margin: 0 0 12px; }
+  .note { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  input, select, button { font: inherit; color: inherit; }
+  input[type=text], input[type=password], input[type=date], input[type=time], input[type=number], select {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 0; width: 100%;
+  }
+  input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+  .route { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: end; }
+  .swap { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; height: 40px; width: 40px; cursor: pointer; }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  .btn { border: 1px solid var(--line); background: var(--bg); padding: 9px 16px; border-radius: 8px; cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .btn.stop { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .tickets { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+  .status { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 14px; }
+  .status b { font-variant-numeric: tabular-nums; }
+  .found { border: 2px solid var(--ok); background: var(--ok-soft); }
+  .found h2 { color: var(--ok); }
+  .summary { white-space: pre-wrap; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 14px; margin: 10px 0 0; }
+  .tbl-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  tr.match td { background: var(--ok-soft); }
+  tr.dim td { opacity: .45; }
+  .seat { font-size: 12px; padding: 2px 8px; border-radius: 999px; }
+  .seat.a { background: var(--ok-soft); color: var(--ok); }
+  .seat.l { background: var(--warn-soft); color: var(--warn); }
+  .seat.x { background: var(--bad-soft); color: var(--bad); }
+  .seat.u { background: var(--line); color: var(--muted); }
+  .log { font-size: 13px; color: var(--muted); max-height: 180px; overflow: auto; margin: 0; padding-left: 18px; }
+  .err { color: var(--bad); }
+  .hidden { display: none !important; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .notice { border: 2px solid var(--accent); background: var(--accent-soft); }
+  .notice h2 { color: var(--accent); display: flex; align-items: center; gap: 8px; }
+  .notice ul, .plain { margin: 0; padding-left: 18px; }
+  .notice li { margin: 4px 0; }
+  .btn.sm { padding: 3px 10px; font-size: 13px; }
+  .tag { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--line); color: var(--muted); white-space: nowrap; }
+  .tag.hot { background: var(--accent-soft); color: var(--accent); }
+  .tag.open { background: var(--ok-soft); color: var(--ok); }
+  .news { list-style: none; padding: 0; margin: 0; }
+  .news li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .news li:last-child { border-bottom: 0; }
+  .news .meta { font-size: 12px; color: var(--muted); }
+  .mobile-tip { background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 8px 12px; font-size: 13px; margin: 10px 0 0; }
+  @media (max-width: 520px) {
+    .route { grid-template-columns: 1fr; }
+    .swap { width: 100%; }
+    header h1 { font-size: 20px; }
+    .card { padding: 14px; }
+    .grid { grid-template-columns: 1fr 1fr; }
+    .tickets { grid-template-columns: repeat(3, 1fr); }
+    #loginForm { grid-template-columns: 1fr; }
+    .btns .btn { flex: 1 1 auto; text-align: center; }
+  }
+  /* iOS 在字級小於 16px 的欄位聚焦時會自動放大畫面 */
+  @media (pointer: coarse) {
+    input[type=text], input[type=password], input[type=date], input[type=time], input[type=number], select { font-size: 16px; min-height: 42px; }
+    .btn { min-height: 42px; }
+    .btn.sm { min-height: 32px; }
+    input[type=checkbox] { width: 20px; height: 20px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>高鐵餘票監看器</h1>
+      <div class="sub">定時檢查官方開放資料的剩餘座位，有位子就通知你到官網訂票</div>
+    </div>
+    <div class="grow"></div>
+    <span id="connPill" class="pill">未登入</span>
+    <button id="logoutBtn" class="btn hidden" type="button">登出</button>
+  </header>
+
+  <section id="serverDown" class="card hidden" style="border-color:var(--bad);background:var(--bad-soft)">
+    <h2 class="err" style="margin:0 0 6px">連不到本機伺服器</h2>
+    <p style="margin:0">請到檔案總管雙擊 <b>start.bat</b>，並讓跳出來的黑色視窗保持開著，再重新整理這個網頁。</p>
+  </section>
+
+  <!-- 連假 / 早鳥 / 開賣通知 -->
+  <section id="noticeCard" class="card notice hidden" aria-live="polite">
+    <h2><span class="grow">🔔 新通知</span><button class="btn sm" id="noticeClose" type="button">全部已讀</button></h2>
+    <ul id="noticeList"></ul>
+  </section>
+
+  <!-- 登入 TDX -->
+  <section id="loginCard" class="card hidden">
+    <h2>登入 TDX 資料平台</h2>
+    <p class="note" style="margin:0 0 12px">
+      剩餘座位資料來自交通部 TDX 運輸資料流通服務（免費）。到
+      <a href="https://tdx.transportdata.tw/" target="_blank" rel="noopener">tdx.transportdata.tw</a>
+      註冊會員 → 右上角「會員中心」→「資料服務」→「API 金鑰」→ 按該組金鑰的綠色「編輯」鈕，就會看到 Client Id 與 Client Secret。
+    </p>
+    <p class="note hidden" id="directNote" style="margin:0 0 12px">金鑰只會存在這支手機（這個瀏覽器）裡，只用來向 TDX 取得資料。</p>
+    <form id="loginForm" class="grid">
+      <label class="f">Client Id<input id="clientId" type="text" autocomplete="off" required></label>
+      <label class="f">Client Secret<input id="clientSecret" type="password" autocomplete="off" required></label>
+      <div style="display:flex;flex-direction:column;justify-content:end;gap:8px">
+        <label class="check"><input id="remember" type="checkbox" checked> <span id="rememberText">記住在這台電腦</span></label>
+      </div>
+      <div style="display:flex;align-items:end"><button class="btn primary" type="submit" style="width:100%">登入</button></div>
+    </form>
+    <p id="loginErr" class="note err"></p>
+  </section>
+
+  <!-- 查詢條件 -->
+  <section class="card" id="formCard">
+    <h2>查詢條件</h2>
+    <div class="route">
+      <label class="f">起程站<select id="from"></select></label>
+      <button class="swap" id="swapBtn" type="button" title="起迄互換" aria-label="起迄互換">⇄</button>
+      <label class="f">到達站<select id="to"></select></label>
+    </div>
+    <div class="grid" style="margin-top:12px">
+      <label class="f">出發日期<input id="date" type="date"></label>
+      <label class="f">最早出發<input id="tFrom" type="time" value="07:00"></label>
+      <label class="f">最晚出發<input id="tTo" type="time" value="10:00"></label>
+      <label class="f">車廂
+        <select id="cabin">
+          <option value="std">標準車廂</option>
+          <option value="biz">商務車廂</option>
+          <option value="any">皆可</option>
+        </select>
+      </label>
+    </div>
+    <p class="note" id="dateHint"></p>
+
+    <h2 style="margin-top:18px">張數與付款</h2>
+    <div class="tickets">
+      <label class="f">全票<input id="nAdult" type="number" min="0" max="10" value="1"></label>
+      <label class="f">孩童票<input id="nChild" type="number" min="0" max="10" value="0"></label>
+      <label class="f">愛心票<input id="nDisabled" type="number" min="0" max="10" value="0"></label>
+      <label class="f">敬老票<input id="nSenior" type="number" min="0" max="10" value="0"></label>
+      <label class="f">大學生<input id="nStudent" type="number" min="0" max="10" value="0"></label>
+      <label class="f">付款方式
+        <select id="pay">
+          <option>信用卡線上付款</option>
+          <option>超商付款</option>
+          <option>ATM 轉帳</option>
+          <option>車站窗口付款</option>
+        </select>
+      </label>
+    </div>
+    <p class="note">總張數最多 10 張。官方資料只標示「尚有座位 / 數量有限 / 已售完」，不提供確切剩餘張數；張數較多時建議只接受「尚有座位」。</p>
+
+    <h2 style="margin-top:18px">監看設定</h2>
+    <div class="grid">
+      <label class="f">檢查頻率
+        <select id="interval">
+          <option value="5">每 5 分鐘</option>
+          <option value="10" selected>每 10 分鐘</option>
+          <option value="15">每 15 分鐘</option>
+          <option value="30">每 30 分鐘</option>
+          <option value="60">每 60 分鐘</option>
+        </select>
+      </label>
+      <div style="display:flex;flex-direction:column;justify-content:end;gap:6px">
+        <label class="check"><input id="acceptLimited" type="checkbox" checked> 「數量有限」也算有票</label>
+        <label class="check"><input id="keepGoing" type="checkbox"> 找到後繼續監看</label>
+      </div>
+    </div>
+    <p class="note" id="freqNote"></p>
+    <p class="mobile-tip hidden" id="mobileTip">手機上請讓這個網頁保持在畫面最前面、螢幕開著（監看時會自動防止螢幕變暗）。切到其他 App 或鎖定螢幕，手機會暫停網頁，監看也會跟著暫停，回來後會馬上補查一次。</p>
+
+    <div class="btns">
+      <button class="btn" id="onceBtn" type="button">立即查詢一次</button>
+      <button class="btn primary" id="startBtn" type="button">開始監看</button>
+      <button class="btn stop hidden" id="stopBtn" type="button">停止監看</button>
+    </div>
+    <p id="formErr" class="note err"></p>
+  </section>
+
+  <!-- 找到了 -->
+  <section class="card found hidden" id="foundCard" aria-live="assertive">
+    <h2 id="foundTitle">找到符合的車次！</h2>
+    <p style="margin:0">請立即到高鐵官網完成訂位（需輸入驗證碼），照下面資料填寫：</p>
+    <div class="summary" id="summary"></div>
+    <div class="btns">
+      <a class="btn primary" href="https://irs.thsrc.com.tw/IMINT/" target="_blank" rel="noopener" style="text-decoration:none">前往高鐵網路訂票 ↗</a>
+      <button class="btn" id="copyBtn" type="button">複製訂票資料</button>
+      <button class="btn" id="silenceBtn" type="button">關閉提示音</button>
+    </div>
+  </section>
+
+  <!-- 狀態 -->
+  <section class="card">
+    <div class="status">
+      <span>狀態：<b id="stState">待機</b></span>
+      <span>上次檢查：<b id="stLast">—</b></span>
+      <span>下次檢查：<b id="stNext">—</b></span>
+      <span>資料更新：<b id="stSrc">—</b></span>
+      <span>已檢查：<b id="stCount">0</b> 次</span>
+    </div>
+  </section>
+
+  <!-- 結果 -->
+  <section class="card">
+    <h2>時段內車次 <span id="resCount" class="note"></span></h2>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>車次</th><th>出發</th><th>抵達</th><th>行車時間</th><th>標準車廂</th><th>商務車廂</th><th>符合</th></tr></thead>
+        <tbody id="rows"><tr><td colspan="7" class="note">尚未查詢</td></tr></tbody>
+      </table>
+    </div>
+    <details style="margin-top:12px">
+      <summary>紀錄</summary>
+      <ol id="log" class="log" reversed></ol>
+    </details>
+  </section>
+
+  <!-- 連假與優惠 -->
+  <section class="card">
+    <h2>三個月內的連假</h2>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>期間</th><th>天數</th><th>節日</th><th>預計開賣</th><th></th></tr></thead>
+        <tbody id="holidayRows"><tr><td colspan="5" class="note">載入中…</td></tr></tbody>
+      </table>
+    </div>
+    <p class="note">開賣日以「乘車日前 28 天凌晨」估算；連假疏運常會提前開賣，以下方高鐵公告為準。</p>
+
+    <h2 style="margin-top:18px">高鐵優惠與疏運公告</h2>
+    <ul class="news" id="newsList"><li class="note">載入中…</li></ul>
+
+    <h2 style="margin-top:18px">通知設定</h2>
+    <div class="grid">
+      <label class="check"><input id="notifyHoliday" type="checkbox" checked> 出現 3 天以上連假</label>
+      <label class="check"><input id="notifyEarly" type="checkbox" checked> 新的早鳥優惠公告</label>
+      <label class="check"><input id="notifyRush" type="checkbox" checked> 疏運加開 / 開放購票公告</label>
+    </div>
+    <p class="note">網頁開著就會自動檢查：公告每 30 分鐘一次、連假每 6 小時一次。這些通知和上面的座位監看是分開的，不用按「開始監看」。</p>
+  </section>
+</div>
+
+<script>
+const STATIONS = [
+  ['0990', '南港'], ['1000', '台北'], ['1010', '板橋'], ['1020', '桃園'], ['1030', '新竹'], ['1035', '苗栗'],
+  ['1040', '台中'], ['1043', '彰化'], ['1047', '雲林'], ['1050', '嘉義'], ['1060', '台南'], ['1070', '左營'],
+];
+const stationName = Object.fromEntries(STATIONS);
+const $ = (id) => document.getElementById(id);
+const FIELDS = ['from', 'to', 'date', 'tFrom', 'tTo', 'cabin', 'nAdult', 'nChild', 'nDisabled', 'nSenior', 'nStudent', 'pay', 'interval', 'acceptLimited', 'keepGoing', 'notifyHoliday', 'notifyEarly', 'notifyRush'];
+const RANGE_DAYS = 90;   // 可選日期範圍：三個月
+const SALE_DAYS = 28;    // 高鐵一般在乘車日前 28 天開賣
+
+// ---------- 初始化表單 ----------
+for (const sel of [$('from'), $('to')]) {
+  sel.innerHTML = STATIONS.map(([id, n]) => `<option value="${id}">${n}</option>`).join('');
+}
+$('from').value = '1000'; $('to').value = '1070';
+
+const pad = (n) => String(n).padStart(2, '0');
+const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const hm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const today = new Date();
+$('date').min = ymd(today);
+$('date').max = ymd(new Date(today.getFullYear(), today.getMonth(), today.getDate() + RANGE_DAYS));
+$('date').value = ymd(today);
+
+try {
+  const saved = JSON.parse(localStorage.getItem('thsr-watch') || '{}');
+  for (const k of FIELDS) {
+    if (!(k in saved)) continue;
+    if ($(k).type === 'checkbox') $(k).checked = saved[k]; else $(k).value = saved[k];
+  }
+  if (!$('date').value || $('date').value < $('date').min || $('date').value > $('date').max) $('date').value = ymd(today);
+} catch {}
+function saveForm() {
+  try {
+    const o = {};
+    for (const k of FIELDS) o[k] = $(k).type === 'checkbox' ? $(k).checked : $(k).value;
+    localStorage.setItem('thsr-watch', JSON.stringify(o));
+  } catch {}
+}
+FIELDS.forEach((k) => $(k).addEventListener('change', () => { saveForm(); updateFreqNote(); if (k === 'date') updateDateHint(); }));
+$('swapBtn').onclick = () => { const f = $('from').value; $('from').value = $('to').value; $('to').value = f; saveForm(); };
+
+function updateFreqNote() {
+  const isToday = $('date').value === ymd(new Date());
+  $('freqNote').textContent = isToday
+    ? '當日車次的官方座位資料約每 10 分鐘更新一次，設得更頻繁也不會更快看到。'
+    : '非當日車次的官方座位資料每天只在 10:00、16:00、22:00 左右更新，建議選 30–60 分鐘；接近當天時改用當日監看效果最好。';
+}
+updateFreqNote();
+
+// ---------- 連線模式 ----------
+// server：由電腦上的 start.bat 提供網頁，透過本機伺服器代理 TDX（金鑰存在電腦）
+// direct：網頁單獨開啟（例如手機），直接連 TDX（金鑰存在這個瀏覽器）
+const TDX = 'https://tdx.transportdata.tw';
+const TOKEN_URL = `${TDX}/auth/realms/TDXConnect/protocol/openid-connect/token`;
+const CRED_KEY = 'thsr-cred';
+let mode = null;            // 'server' | 'direct'
+let loggedIn = false;
+let directCreds = null, directToken = null, directTokenExp = 0;
+
+async function detectMode() {
+  try {
+    const r = await fetch('api/status', { signal: AbortSignal.timeout(4000) });
+    const s = await r.json();
+    if (typeof s?.loggedIn === 'boolean') { mode = 'server'; return; }
+  } catch {}
+  mode = 'direct';
+  try { directCreds = JSON.parse(localStorage.getItem(CRED_KEY) || 'null'); } catch {}
+  $('directNote').classList.remove('hidden');
+  $('rememberText').textContent = '記住在這個瀏覽器';
+}
+
+async function directToken_(force) {
+  if (!directCreds) throw new Error('尚未登入 TDX');
+  if (!force && directToken && Date.now() < directTokenExp) return directToken;
+  let r;
+  try {
+    r = await fetch(TOKEN_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'client_credentials', client_id: directCreds.clientId, client_secret: directCreds.clientSecret }),
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch (err) {
+    throw new Error(err.name === 'TimeoutError' ? 'TDX 回應逾時，請檢查網路後再試一次' : '連不到 TDX，請檢查網路連線');
+  }
+  if (!r.ok) throw new Error(`TDX 驗證失敗（HTTP ${r.status}），請確認 Client Id / Secret`);
+  const j = await r.json();
+  directToken = j.access_token;
+  directTokenExp = Date.now() + (j.expires_in - 300) * 1000;
+  return directToken;
+}
+
+function setConnUI({ ok, mock = false, down = false }) {
+  loggedIn = ok;
+  $('serverDown').classList.toggle('hidden', !down);
+  $('loginCard').classList.toggle('hidden', ok || down);
+  $('logoutBtn').classList.toggle('hidden', !ok || mock);
+  $('connPill').className = 'pill ' + (mock ? 'mock' : ok ? 'on' : '');
+  $('connPill').textContent = down ? '伺服器未啟動' : mock ? '模擬資料模式' : ok ? 'TDX 已連線' : '未登入';
+}
+
+async function refreshConn() {
+  if (!mode) await detectMode();
+  if (mode === 'direct') { setConnUI({ ok: !!directCreds }); return loggedIn; }
+  const s = await fetch('api/status').then((r) => r.json()).catch(() => null);
+  if (!s) { setConnUI({ ok: false, down: true }); return false; }
+  setConnUI({ ok: s.loggedIn, mock: s.mock });
+  return loggedIn;
+}
+
+async function login(clientId, clientSecret, remember) {
+  if (mode === 'direct') {
+    directCreds = { clientId, clientSecret };
+    try { await directToken_(true); } catch (e) { directCreds = null; throw e; }
+    try { if (remember) localStorage.setItem(CRED_KEY, JSON.stringify(directCreds)); else localStorage.removeItem(CRED_KEY); } catch {}
+    return;
+  }
+  let r;
+  try {
+    r = await fetch('api/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId, clientSecret, remember }),
+      signal: AbortSignal.timeout(25000),
+    });
+  } catch (err) {
+    throw new Error(err.name === 'TimeoutError' ? 'TDX 回應逾時，請檢查網路後再試一次'
+      : '連不到本機伺服器：請確認 start.bat 的黑色視窗還開著（關掉了就重新雙擊 start.bat）');
+  }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `登入失敗（HTTP ${r.status}）`);
+}
+
+$('loginForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const btn = e.submitter || $('loginForm').querySelector('button');
+  btn.disabled = true;
+  $('loginErr').textContent = '登入中…';
+  try {
+    await login($('clientId').value.trim(), $('clientSecret').value.trim(), $('remember').checked);
+    $('loginErr').textContent = ''; $('clientSecret').value = '';
+    refreshConn().then(afterConnect);
+  } catch (err) {
+    $('loginErr').textContent = err.message;
+    refreshConn();
+  } finally {
+    btn.disabled = false;
+  }
+};
+$('logoutBtn').onclick = async () => {
+  stopWatch();
+  if (mode === 'direct') {
+    directCreds = directToken = null;
+    try { localStorage.removeItem(CRED_KEY); } catch {}
+  } else {
+    await fetch('api/logout', { method: 'POST' }).catch(() => {});
+  }
+  refreshConn();
+};
+function afterConnect() { updateDateHint(); extrasTick(); }
+refreshConn().then(afterConnect);
+
+// ---------- 查詢 ----------
+const ttCache = new Map(); // 時刻表一天只抓一次
+async function api(p) {
+  const qs = (p.includes('?') ? '&' : '?') + '$format=JSON';
+  const get = async (force) => mode === 'direct'
+    ? fetch(`${TDX}/api/basic/${p}${qs}`, { headers: { Authorization: `Bearer ${await directToken_(force)}` }, signal: AbortSignal.timeout(30000) })
+    : fetch('api/tdx/' + p + qs, { signal: AbortSignal.timeout(30000) });
+  let r;
+  try {
+    r = await get(false);
+    if (r.status === 401 && mode === 'direct') r = await get(true);
+  } catch (err) {
+    if (err.name === 'TimeoutError') throw new Error('查詢逾時，稍後會再試');
+    if (mode === 'direct') throw new Error(err.message.startsWith('TDX') || err.message.startsWith('尚未') || err.message.startsWith('連不到') ? err.message : '連不到 TDX，請檢查網路連線');
+    refreshConn();
+    throw new Error('連不到本機伺服器，請確認 start.bat 的視窗還開著');
+  }
+  const text = await r.text();
+  let j; try { j = JSON.parse(text); } catch { j = null; }
+  if (!r.ok) {
+    const msg = (j && (j.error || j.message || j.Message)) || text.slice(0, 120);
+    throw new Error(r.status === 429 ? 'TDX 呼叫次數超過限制，稍後會再試' : `HTTP ${r.status}：${msg}`);
+  }
+  return j;
+}
+function seatKind(v) {
+  const s = String(v ?? '').toLowerCase();
+  if (s === 'o' || s.startsWith('avail')) return 'a';
+  if (s === 'l' || s.startsWith('limit')) return 'l';
+  if (s === 'x' || s.startsWith('full') || s.startsWith('sold')) return 'x';
+  return 'u';
+}
+const SEAT_LABEL = { a: '尚有座位', l: '數量有限', x: '已售完', u: '無資料' };
+
+function readForm() {
+  const f = {
+    from: $('from').value, to: $('to').value, date: $('date').value,
+    tFrom: $('tFrom').value || '00:00', tTo: $('tTo').value || '23:59', cabin: $('cabin').value,
+    acceptLimited: $('acceptLimited').checked, pay: $('pay').value,
+    counts: { 全票: +$('nAdult').value || 0, 孩童票: +$('nChild').value || 0, 愛心票: +$('nDisabled').value || 0, 敬老票: +$('nSenior').value || 0, 大學生: +$('nStudent').value || 0 },
+  };
+  f.total = Object.values(f.counts).reduce((a, b) => a + b, 0);
+  if (f.from === f.to) throw new Error('起程站與到達站不能相同');
+  if (!f.date) throw new Error('請選擇出發日期');
+  if (f.tFrom > f.tTo) throw new Error('最早出發時間不能晚於最晚出發時間');
+  if (f.total < 1 || f.total > 10) throw new Error('總張數需為 1–10 張');
+  return f;
+}
+
+// ---------- 開賣日 ----------
+// TDX 的 TrainDates 列出目前已有時刻表（= 已開放訂票）的日期，每天凌晨更新
+let trainDates = null, trainDatesAt = 0;
+async function getTrainDates(force) {
+  if (!force && trainDates && Date.now() - trainDatesAt < 30 * 60000) return trainDates;
+  const j = await api('v2/Rail/THSR/DailyTimetable/TrainDates');
+  trainDates = { end: j.EndDate, set: new Set(j.TrainDates || []) };
+  trainDatesAt = Date.now();
+  return trainDates;
+}
+const addDays = (dateStr, n) => { const d = new Date(dateStr + 'T00:00'); d.setDate(d.getDate() + n); return ymd(d); };
+const saleDateOf = (dateStr) => addDays(dateStr, -SALE_DAYS);
+const daysUntil = (dateStr) => Math.round((new Date(dateStr + 'T00:00') - new Date(ymd(new Date()) + 'T00:00')) / 864e5);
+const WEEK = '日一二三四五六';
+const md = (dateStr) => { const d = new Date(dateStr + 'T00:00'); return `${d.getMonth() + 1}/${d.getDate()}（${WEEK[d.getDay()]}）`; };
+
+async function updateDateHint() {
+  const date = $('date').value;
+  if (!date) { $('dateHint').textContent = ''; return; }
+  let td = null;
+  try { td = await getTrainDates(); } catch {}
+  if (td && td.set.has(date)) { $('dateHint').textContent = '這天已開放訂票，可以直接查詢剩餘座位。'; return; }
+  const sale = saleDateOf(date);
+  const left = daysUntil(sale);
+  $('dateHint').textContent = `這天還沒開放訂票${td ? `（目前開放到 ${td.end}）` : ''}。預計 ${md(sale)} 凌晨開賣${left > 0 ? `，還有 ${left} 天` : ''}；`
+    + '按「開始監看」會先等到開賣，開賣後自動通知並開始查座位。';
+}
+
+async function checkOnce(f) {
+  const td = await getTrainDates(f.waitingSale);
+  if (!td.set.has(f.date)) return { notOpen: true, end: td.end };
+  const key = `${f.from}-${f.to}-${f.date}`;
+  let tt = ttCache.get(key);
+  if (!tt) {
+    tt = await api(`v2/Rail/THSR/DailyTimetable/OD/${f.from}/to/${f.to}/${f.date}`);
+    if (!Array.isArray(tt) || !tt.length) throw new Error('查無此日期的時刻表（可能尚未開放或日期超出範圍）');
+    ttCache.set(key, tt);
+  }
+  const seats = await api(`v2/Rail/THSR/AvailableSeatStatus/Train/OD/${f.from}/to/${f.to}/TrainDate/${f.date}`);
+  const seatList = Array.isArray(seats) ? seats : (seats?.AvailableSeats || []);
+  const seatBy = new Map(seatList.map((s) => [String(s.TrainNo), s]));
+
+  const nowHM = f.date === ymd(new Date()) ? hm(new Date()) : '00:00';
+  const rows = tt.map((t) => {
+    const no = String(t.DailyTrainInfo?.TrainNo ?? '');
+    const dep = t.OriginStopTime?.DepartureTime || '';
+    const arr = t.DestinationStopTime?.ArrivalTime || '';
+    const s = seatBy.get(no) || {};
+    const std = seatKind(s.StandardSeatStatus), biz = seatKind(s.BusinessSeatStatus);
+    const ok = (k) => k === 'a' || (f.acceptLimited && k === 'l');
+    const match = f.cabin === 'std' ? ok(std) : f.cabin === 'biz' ? ok(biz) : ok(std) || ok(biz);
+    return { no, dep, arr, std, biz, match, departed: dep < nowHM };
+  }).filter((r) => r.dep >= f.tFrom && r.dep <= f.tTo).sort((a, b) => a.dep.localeCompare(b.dep));
+  rows.forEach((r) => { if (r.departed) r.match = false; });
+  return { rows, updated: seats?.UpdateTime || seats?.SrcUpdateTime || null };
+}
+
+function duration(dep, arr) {
+  const toMin = (s) => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
+  let d = toMin(arr) - toMin(dep); if (d < 0) d += 1440;
+  return `${Math.floor(d / 60)}:${pad(d % 60)}`;
+}
+function render(rows) {
+  $('resCount').textContent = `（${rows.length} 班，符合 ${rows.filter((r) => r.match).length} 班）`;
+  $('rows').innerHTML = rows.length ? rows.map((r) => `
+    <tr class="${r.match ? 'match' : r.departed ? 'dim' : ''}">
+      <td>${r.no}</td><td>${r.dep}</td><td>${r.arr}</td><td>${duration(r.dep, r.arr)}</td>
+      <td><span class="seat ${r.std}">${SEAT_LABEL[r.std]}</span></td>
+      <td><span class="seat ${r.biz}">${SEAT_LABEL[r.biz]}</span></td>
+      <td>${r.match ? '✔' : r.departed ? '已發車' : ''}</td>
+    </tr>`).join('') : '<tr><td colspan="7" class="note">這個時段沒有車次</td></tr>';
+}
+
+function summaryText(f, matches) {
+  const cnt = Object.entries(f.counts).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n} 張`).join('、');
+  const cabin = { std: '標準車廂', biz: '商務車廂', any: '標準或商務皆可' }[f.cabin];
+  return [
+    `起訖：${stationName[f.from]} → ${stationName[f.to]}`,
+    `日期：${f.date}`,
+    `車次：${matches.slice(0, 5).map((r) => `${r.no}（${r.dep} 開 / ${r.arr} 到，標準 ${SEAT_LABEL[r.std]}、商務 ${SEAT_LABEL[r.biz]}）`).join('\n      ')}`,
+    `車廂：${cabin}`,
+    `張數：${cnt}（共 ${f.total} 張）`,
+    `付款：${f.pay}`,
+  ].join('\n');
+}
+
+// ---------- 通知 ----------
+let alarmTimer = null, titleTimer = null, audioCtx = null;
+function beep() {
+  try {
+    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+    [0, 0.25, 0.5].forEach((t) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.value = 880; o.connect(g); g.connect(audioCtx.destination);
+      g.gain.setValueAtTime(0.25, audioCtx.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + t + 0.2);
+      o.start(audioCtx.currentTime + t); o.stop(audioCtx.currentTime + t + 0.22);
+    });
+  } catch {}
+}
+function alarm(f, matches) {
+  const first = matches[0];
+  $('foundTitle').textContent = `找到 ${matches.length} 班符合的車次！`;
+  $('summary').textContent = summaryText(f, matches);
+  $('foundCard').classList.remove('hidden');
+  $('foundCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  silence();
+  beep(); alarmTimer = setInterval(beep, 4000);
+  navigator.vibrate?.([400, 150, 400, 150, 400]);
+  let on = false;
+  titleTimer = setInterval(() => { document.title = (on = !on) ? '🔔 有票了！' : '高鐵餘票監看器'; }, 1000);
+  if ('Notification' in window && Notification.permission === 'granted') {
+    showNotif('高鐵有票了！', `${stationName[f.from]}→${stationName[f.to]} ${f.date} ${first.no} 次 ${first.dep} 開`, true);
+  }
+}
+function silence() {
+  clearInterval(alarmTimer); clearInterval(titleTimer); alarmTimer = titleTimer = null;
+  document.title = '高鐵餘票監看器';
+}
+$('silenceBtn').onclick = silence;
+$('copyBtn').onclick = async () => {
+  try { await navigator.clipboard.writeText($('summary').textContent); $('copyBtn').textContent = '已複製'; }
+  catch { $('copyBtn').textContent = '複製失敗，請手動選取'; }
+  setTimeout(() => { $('copyBtn').textContent = '複製訂票資料'; }, 2000);
+};
+
+// ---------- 手機支援：系統通知、螢幕常亮、背景恢復 ----------
+// Android Chrome 不允許直接 new Notification()，要透過 service worker 顯示；iOS 需先「加入主畫面」才有通知
+let swReg = null;
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('sw.js').then((r) => { swReg = r; }).catch(() => {});
+}
+async function showNotif(title, body, sticky = false) {
+  const opts = { body, icon: 'icon-192.png', badge: 'icon-192.png', tag: title, renotify: true, requireInteraction: sticky };
+  try { if (swReg) { await swReg.showNotification(title, opts); return; } } catch {}
+  try { new Notification(title, opts); } catch {}
+}
+let wakeLock = null;
+async function keepAwake() {
+  try {
+    if (wakeLock || document.visibilityState !== 'visible' || !navigator.wakeLock) return;
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch {}
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (watching) keepAwake();   // 切回來時螢幕常亮會被系統取消，要重新申請
+  extrasTick();                // 補做背景期間到期的檢查；座位監看由每秒計時器補上
+});
+if (matchMedia('(pointer: coarse)').matches) $('mobileTip').classList.remove('hidden');
+
+// ---------- 一般通知（連假、早鳥、開賣） ----------
+const IRS_URL = 'https://irs.thsrc.com.tw/IMINT/';
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function chime() {
+  try {
+    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+    [[660, 0], [990, 0.18]].forEach(([freq, t]) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.value = freq; o.connect(g); g.connect(audioCtx.destination);
+      g.gain.setValueAtTime(0.2, audioCtx.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + t + 0.3);
+      o.start(audioCtx.currentTime + t); o.stop(audioCtx.currentTime + t + 0.32);
+    });
+  } catch {}
+}
+// items: [{ text, url?, date? }]；date 會多一個「帶入查詢」按鈕
+function notice(title, items) {
+  const list = $('noticeList');
+  for (const it of items) {
+    const li = document.createElement('li');
+    li.append(`${hm(new Date())}　${it.text} `);
+    if (it.url) {
+      const a = document.createElement('a');
+      a.href = it.url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = '查看 ↗';
+      li.append(a);
+    }
+    if (it.date) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn sm'; b.textContent = '帶入查詢';
+      b.onclick = () => useDate(it.date);
+      li.append(' ', b);
+    }
+    list.prepend(li);
+  }
+  while (list.children.length > 30) list.lastChild.remove();
+  $('noticeCard').classList.remove('hidden');
+  chime();
+  navigator.vibrate?.([200, 100, 200]);
+  if ('Notification' in window && Notification.permission === 'granted') {
+    showNotif(title, items.map((i) => i.text).join('\n').slice(0, 250));
+  }
+}
+$('noticeClose').onclick = () => { $('noticeList').innerHTML = ''; $('noticeCard').classList.add('hidden'); };
+function useDate(date) {
+  if (watching) { alert('監看中無法修改日期，請先停止監看'); return; }
+  $('date').value = date; saveForm(); updateFreqNote(); updateDateHint();
+  $('formCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+// 瀏覽器規定要先有使用者操作，才能播放聲音、詢問通知權限
+document.addEventListener('click', () => {
+  try { audioCtx ||= new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); } catch {}
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+}, { once: true });
+
+let seen;
+try { seen = new Set(JSON.parse(localStorage.getItem('thsr-seen') || '[]')); } catch { seen = new Set(); }
+const saveSeen = () => { try { localStorage.setItem('thsr-seen', JSON.stringify([...seen].slice(-300))); } catch {} };
+
+// 連假資料：人事行政總處辦公日曆（由 ruyut/TaiwanCalendar 整理成 JSON）
+async function fetchHolidays() {
+  const year = new Date().getFullYear();
+  const days = [];
+  for (const y of [year, year + 1]) {
+    try {
+      const r = await fetch(`https://cdn.jsdelivr.net/gh/ruyut/TaiwanCalendar/data/${y}.json`, { signal: AbortSignal.timeout(20000) });
+      if (r.ok) days.push(...await r.json());
+    } catch { /* 明年的行事曆可能還沒公布 */ }
+  }
+  if (!days.length) throw new Error('無法取得政府行事曆資料');
+  const fmt = (s) => `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+  const runs = [];
+  let run = [];
+  const flush = () => {
+    if (run.length >= 3) {
+      runs.push({
+        start: fmt(run[0].date), end: fmt(run.at(-1).date), days: run.length,
+        names: [...new Set(run.map((d) => d.description).filter((s) => s && s !== '補假'))],
+      });
+    }
+    run = [];
+  };
+  for (const d of days) d.isHoliday ? run.push(d) : flush();
+  flush();
+  return runs;
+}
+
+async function checkHolidays() {
+  let list;
+  try {
+    list = await fetchHolidays();
+  } catch (e) {
+    $('holidayRows').innerHTML = `<tr><td colspan="5" class="note err">連假資料載入失敗：${esc(e.message)}，稍後會再試</td></tr>`;
+    return false;
+  }
+  let td = null;
+  try { if (loggedIn) td = await getTrainDates(); } catch {}
+  const t = ymd(new Date()), limit = addDays(t, RANGE_DAYS);
+  const upcoming = list.filter((h) => h.end >= t && h.start <= limit);
+  const label = (h) => h.names.join('、') || '週休連假';
+  $('holidayRows').innerHTML = upcoming.length ? upcoming.map((h) => {
+    const sale = saleDateOf(h.start), left = daysUntil(sale);
+    const status = td?.set.has(h.start) ? '<span class="tag open">已開賣</span>'
+      : left <= 0 ? '<span class="tag hot">即將開賣</span>'
+      : `${md(sale)} <span class="note">（${left} 天後）</span>`;
+    return `<tr><td>${md(h.start)}–${md(h.end)}</td><td>${h.days} 天</td><td>${esc(label(h))}</td><td>${status}</td>
+      <td><button class="btn sm" type="button" data-date="${addDays(h.start, -1)}">前一天</button>
+          <button class="btn sm" type="button" data-date="${h.start}">第一天</button></td></tr>`;
+  }).join('') : '<tr><td colspan="5" class="note">三個月內沒有 3 天以上的連假</td></tr>';
+
+  const fresh = upcoming.filter((h) => h.start > t && !seen.has(`h:${h.start}~${h.end}`));
+  if (fresh.length) {
+    fresh.forEach((h) => seen.add(`h:${h.start}~${h.end}`)); saveSeen();
+    if ($('notifyHoliday').checked) {
+      notice('三個月內有新的連假', fresh.map((h) => ({
+        text: `連假 ${md(h.start)}–${md(h.end)} 共 ${h.days} 天（${label(h)}），預計 ${md(saleDateOf(h.start))} 開賣`,
+        date: h.start,
+      })));
+    }
+  }
+  return true;
+}
+$('holidayRows').addEventListener('click', (e) => { const d = e.target.dataset?.date; if (d) useDate(d); });
+
+const EARLY_RE = /早鳥|[0-9０-９一二三四五六七八九]\s*折/;
+const NEGATE_RE = /不適用|暫停|停止|取消|不提供|不開放|不販售/;
+const RUSH_RE = /疏運|加開|開放購票|開放訂位|開放訂票/;
+// 以子句判斷，排除「疏運期間暫停早鳥優惠」這類說法
+const mentionsEarlyBird = (text) => text.split(/[。；;！!？?，,\n]/).some((c) => EARLY_RE.test(c) && !NEGATE_RE.test(c));
+async function checkNews() {
+  let list;
+  try { list = await api('v2/Rail/THSR/News'); } catch (e) {
+    $('newsList').innerHTML = `<li class="note err">公告載入失敗：${esc(e.message)}，稍後會再試</li>`;
+    return false;
+  }
+  if (!Array.isArray(list)) list = list?.Newses || [];
+  const now = Date.now();
+  const items = list.map((n) => {
+    const text = `${n.Title} ${String(n.Description || '').replace(/<[^>]+>/g, '')}`;
+    return { ...n, early: mentionsEarlyBird(text), rush: RUSH_RE.test(n.Title || '') };
+  }).filter((n) => (n.early || n.rush) && (!n.EndTime || new Date(n.EndTime) > now))
+    .sort((a, b) => String(b.PublishTime).localeCompare(String(a.PublishTime)));
+
+  $('newsList').innerHTML = items.length ? items.map((n) => `
+    <li>
+      ${n.early ? '<span class="tag hot">早鳥優惠</span> ' : ''}${n.rush ? '<span class="tag">疏運 / 開賣</span> ' : ''}
+      <a href="${esc(n.NewsUrl || 'https://www.thsrc.com.tw/')}" target="_blank" rel="noopener">${esc(n.Title)}</a>
+      <div class="meta">${esc(n.NewsCategory || '')}・${esc(String(n.PublishTime || '').slice(0, 10))}</div>
+    </li>`).join('') : '<li class="note">目前沒有早鳥優惠或疏運相關公告</li>';
+
+  const fresh = items.filter((n) => !seen.has(`n:${n.NewsID}`));
+  if (fresh.length) {
+    fresh.forEach((n) => seen.add(`n:${n.NewsID}`)); saveSeen();
+    const wanted = fresh.filter((n) => (n.early && $('notifyEarly').checked) || (n.rush && $('notifyRush').checked));
+    if (wanted.length) {
+      notice(wanted.some((n) => n.early) ? '高鐵有新的早鳥優惠公告' : '高鐵有新的疏運公告',
+        wanted.map((n) => ({ text: `${n.early ? '【早鳥優惠】' : '【疏運/開賣】'}${n.Title}`, url: n.NewsUrl })));
+    }
+  }
+  return true;
+}
+
+// 失敗時 5 分鐘後重試，成功則照正常週期
+let nextHolidayAt = 0, nextNewsAt = 0;
+async function extrasTick() {
+  const now = Date.now();
+  if (now >= nextHolidayAt) {
+    nextHolidayAt = now + 5 * 60000;
+    if (await checkHolidays()) nextHolidayAt = now + 6 * 3600e3;
+  }
+  if (loggedIn && now >= nextNewsAt) {
+    nextNewsAt = now + 5 * 60000;
+    if (await checkNews()) nextNewsAt = now + 30 * 60000;
+  }
+}
+setInterval(extrasTick, 60000);
+
+// ---------- 監看迴圈 ----------
+let watching = false, nextAt = 0, busy = false, checks = 0, watchForm = null;
+function log(msg, isErr) {
+  const li = document.createElement('li');
+  li.textContent = `${hm(new Date())}:${pad(new Date().getSeconds())}  ${msg}`;
+  if (isErr) li.className = 'err';
+  $('log').prepend(li);
+  while ($('log').children.length > 200) $('log').lastChild.remove();
+}
+async function run(f) {
+  if (busy) return; busy = true;
+  $('stState').textContent = '查詢中…';
+  try {
+    const res = await checkOnce(f);
+    checks++; $('stCount').textContent = checks;
+    $('stLast').textContent = hm(new Date());
+    if (res.notOpen) {
+      f.waitingSale = true;
+      const sale = saleDateOf(f.date);
+      $('resCount').textContent = '';
+      $('rows').innerHTML = `<tr><td colspan="7" class="note">${f.date} 還沒開放訂票，預計 ${md(sale)} 凌晨開賣，開賣後會自動通知並開始查詢。</td></tr>`;
+      log(`${f.date} 尚未開賣（目前開放到 ${res.end}），預計 ${sale} 開賣，繼續等待`);
+      return;
+    }
+    if (f.waitingSale) {
+      f.waitingSale = false;
+      log(`${f.date} 已開放訂票！`);
+      notice('高鐵已開放訂票', [{ text: `${stationName[f.from]}→${stationName[f.to]} ${md(f.date)} 已開放訂票，正在查詢座位`, url: IRS_URL }]);
+    }
+    const { rows, updated } = res;
+    $('stSrc').textContent = updated ? new Date(updated).toLocaleString('zh-TW', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+    render(rows);
+    const matches = rows.filter((r) => r.match);
+    log(matches.length ? `找到 ${matches.length} 班：${matches.map((r) => r.no).join('、')}` : `時段內 ${rows.length} 班，暫無符合的座位`);
+    if (matches.length) {
+      alarm(f, matches);
+      if (watching && !$('keepGoing').checked) stopWatch('已找到車次，監看停止');
+    }
+    if (watching && rows.length && rows.every((r) => r.departed)) stopWatch('時段內車次都已發車，監看停止');
+  } catch (e) {
+    log(e.message, true);
+    if (/401|尚未登入/.test(e.message)) { refreshConn(); stopWatch('需要重新登入'); }
+  } finally {
+    busy = false;
+    if (watching) { $('stState').textContent = f.waitingSale ? '等待開賣' : '監看中'; nextAt = Date.now() + (+$('interval').value) * 60000; }
+    else if ($('stState').textContent === '查詢中…') $('stState').textContent = '待機';
+  }
+}
+function startWatch() {
+  let f; try { f = readForm(); } catch (e) { $('formErr').textContent = e.message; return; }
+  $('formErr').textContent = '';
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+  try { audioCtx ||= new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); } catch {}
+  keepAwake();
+  watching = true; watchForm = f;
+  $('startBtn').classList.add('hidden'); $('stopBtn').classList.remove('hidden');
+  $('formCard').querySelectorAll('input,select,#swapBtn,#onceBtn').forEach((el) => { el.disabled = true; });
+  log(`開始監看 ${stationName[f.from]}→${stationName[f.to]} ${f.date} ${f.tFrom}–${f.tTo}`);
+  run(f);
+}
+function stopWatch(reason) {
+  if (!watching) return;
+  watching = false; nextAt = 0;
+  $('startBtn').classList.remove('hidden'); $('stopBtn').classList.add('hidden');
+  $('formCard').querySelectorAll('input,select,#swapBtn,#onceBtn').forEach((el) => { el.disabled = false; });
+  $('stState').textContent = '待機'; $('stNext').textContent = '—';
+  log(reason || '已停止監看');
+}
+$('startBtn').onclick = startWatch;
+$('stopBtn').onclick = () => stopWatch();
+$('onceBtn').onclick = () => {
+  try { $('formErr').textContent = ''; run(readForm()); } catch (e) { $('formErr').textContent = e.message; }
+};
+
+// 每秒檢查一次時間到了沒（分頁在背景被節流也不會漏掉）
+setInterval(() => {
+  if (!watching) return;
+  if (!nextAt) return;
+  const left = Math.max(0, Math.round((nextAt - Date.now()) / 1000));
+  $('stNext').textContent = `${Math.floor(left / 60)}:${pad(left % 60)} 後`;
+  if (left === 0 && !busy) { nextAt = 0; run(watchForm); }
+}, 1000);
+</script>
+</body>
+</html>

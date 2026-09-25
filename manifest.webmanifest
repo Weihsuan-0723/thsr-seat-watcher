@@ -1,0 +1,15 @@
+{
+  "name": "高鐵餘票監看器",
+  "short_name": "高鐵監看",
+  "description": "定時檢查高鐵剩餘座位、連假與早鳥優惠，有票就通知",
+  "lang": "zh-Hant",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f5f2",
+  "theme_color": "#d9531e",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
