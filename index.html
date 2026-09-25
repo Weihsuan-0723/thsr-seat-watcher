@@ -230,9 +230,11 @@
       </div>
     </div>
     <p class="note" id="freqNote"></p>
+    <p class="mobile-tip hidden" id="testNote" style="white-space:pre-line"></p>
     <p class="mobile-tip hidden" id="mobileTip">手機上請讓這個網頁保持在畫面最前面、螢幕開著（監看時會自動防止螢幕變暗）。切到其他 App 或鎖定螢幕，手機會暫停網頁，監看也會跟著暫停，回來後會馬上補查一次。</p>
 
     <div class="btns">
+      <button class="btn" id="testBtn" type="button">測試提示音</button>
       <button class="btn" id="onceBtn" type="button">立即查詢一次</button>
       <button class="btn primary" id="startBtn" type="button">開始監看</button>
       <button class="btn stop hidden" id="stopBtn" type="button">停止監看</button>
@@ -602,19 +604,79 @@ function summaryText(f, matches) {
 }
 
 // ---------- 通知 ----------
+// ---------- 提示音 ----------
+// iPhone 的靜音開關會把 Web Audio 靜音，所以主要用 <audio> 播放（媒體聲音不受靜音開關影響），
+// 再宣告 audioSession 為 playback；兩者都失敗才退回 Web Audio。
+// iOS 規定聲音必須先在使用者點擊時「解鎖」一次，之後計時器觸發才播得出來。
 let alarmTimer = null, titleTimer = null, audioCtx = null;
-function beep() {
+function makeWav(tones, total, rate = 22050) {
+  const n = Math.floor(total * rate), pcm = new Int16Array(n);
+  for (const [freq, start, dur] of tones) {
+    const a = Math.floor(start * rate), b = Math.min(n, Math.floor((start + dur) * rate));
+    for (let i = a; i < b; i++) {
+      const env = Math.min(1, (i - a) / (0.005 * rate), (b - i) / (0.03 * rate));
+      pcm[i] = Math.max(-32767, Math.min(32767, pcm[i] + Math.sin(2 * Math.PI * freq * (i - a) / rate) * 0.6 * env * 32767));
+    }
+  }
+  const buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const str = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  str(36, 'data'); v.setUint32(40, n * 2, true);
+  new Int16Array(buf, 44).set(pcm);
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+const SOUNDS = {
+  alarm: { tones: [[880, 0, 0.2], [880, 0.25, 0.2], [880, 0.5, 0.2]], total: 0.8 },
+  chime: { tones: [[660, 0, 0.3], [990, 0.18, 0.3]], total: 0.55 },
+};
+for (const s of Object.values(SOUNDS)) {
+  s.el = new Audio(makeWav(s.tones, s.total));
+  s.el.preload = 'auto';
+  s.el.setAttribute('playsinline', '');
+}
+let audioUnlocked = false;
+function unlockAudio() {
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
   try {
     audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
-    [0, 0.25, 0.5].forEach((t) => {
-      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-      o.frequency.value = 880; o.connect(g); g.connect(audioCtx.destination);
-      g.gain.setValueAtTime(0.25, audioCtx.currentTime + t);
-      g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + t + 0.2);
-      o.start(audioCtx.currentTime + t); o.stop(audioCtx.currentTime + t + 0.22);
-    });
+    if (audioCtx.state !== 'running') audioCtx.resume();
+  } catch {}
+  if (audioUnlocked) return;
+  // 在點擊當下靜音播放一次，iOS 之後才允許程式自行播放這兩個聲音
+  for (const s of Object.values(SOUNDS)) {
+    s.el.muted = true;
+    s.el.play().then(() => { s.el.pause(); s.el.currentTime = 0; s.el.muted = false; audioUnlocked = true; })
+      .catch(() => { s.el.muted = false; });
+  }
+}
+function playWebAudio(name) {
+  try {
+    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+    audioCtx.resume?.();
+    for (const [freq, start, dur] of SOUNDS[name].tones) {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain(), t = audioCtx.currentTime + start;
+      o.frequency.value = freq; o.connect(g); g.connect(audioCtx.destination);
+      g.gain.setValueAtTime(0.25, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      o.start(t); o.stop(t + dur + 0.02);
+    }
   } catch {}
 }
+function playSound(name) {
+  const el = SOUNDS[name].el;
+  try {
+    el.currentTime = 0;
+    el.play().catch(() => playWebAudio(name));
+  } catch { playWebAudio(name); }
+}
+const beep = () => playSound('alarm');
+const chime = () => playSound('chime');
+// 每次點擊都補一次解鎖：iOS 切到背景再回來時，聲音常會被系統暫停
+['pointerdown', 'touchend', 'click'].forEach((ev) => document.addEventListener(ev, unlockAudio, { passive: true }));
+document.addEventListener('click', () => {
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+}, { once: true });
 // ---------- 開啟 T-EX ----------
 // T-EX 沒有公開的深層連結可帶入起訖站或日期，只能打開 App 本身，條件由使用者照小抄選擇
 const TEX_ANDROID_PKG = 'tw.com.thsrc.texpress';
@@ -703,33 +765,54 @@ async function showNotif(title, body, sticky = false) {
 let wakeLock = null;
 async function keepAwake() {
   try {
-    if (wakeLock || document.visibilityState !== 'visible' || !navigator.wakeLock) return;
+    if (wakeLock) return true;
+    if (document.visibilityState !== 'visible' || !navigator.wakeLock) return false;
     wakeLock = await navigator.wakeLock.request('screen');
     wakeLock.addEventListener('release', () => { wakeLock = null; });
-  } catch {}
+    return true;
+  } catch { return false; }
 }
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   if (watching) keepAwake();   // 切回來時螢幕常亮會被系統取消，要重新申請
+  try { audioCtx?.resume(); } catch {}
   extrasTick();                // 補做背景期間到期的檢查；座位監看由每秒計時器補上
 });
-if (matchMedia('(pointer: coarse)').matches) $('mobileTip').classList.remove('hidden');
+const isMobile = matchMedia('(pointer: coarse)').matches;
+const isStandalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+if (isMobile) $('mobileTip').classList.remove('hidden');
+
+// 測試提示音與通知：同時完成 iOS 規定的「使用者點擊後才能發聲、才能詢問通知權限」
+$('testBtn').onclick = async () => {
+  unlockAudio();
+  beep();
+  navigator.vibrate?.([400, 150, 400]);
+  let perm = 'Notification' in window ? Notification.permission : 'unsupported';
+  if (perm === 'default') { try { perm = await Notification.requestPermission(); } catch {} }
+  if (perm === 'granted') showNotif('測試通知', '有票時會像這樣通知你');
+  const lines = ['剛剛應該聽到三聲「嗶」。沒聽到的話，請把手機的音量（媒體音量）調大。'];
+  if (platform === 'ios') {
+    lines.push('iPhone 的網頁沒辦法震動，這是 Apple 的限制。');
+    if (!isStandalone) {
+      lines.push('想要震動和系統通知：用 Safari 的分享按鈕 →「加入主畫面」，之後從主畫面的圖示開啟，再按一次這個按鈕並允許通知。通知會照 iPhone 的設定響鈴、震動。');
+    } else if (perm === 'granted') {
+      lines.push('系統通知已開啟，會照 iPhone「設定 → 通知 → 高鐵監看」的設定響鈴、震動；如果沒收到，請到那裡打開「聲音」和「橫幅」。');
+    } else {
+      lines.push('系統通知沒有開啟，請到 iPhone「設定 → 通知 → 高鐵監看」允許通知，才會有震動。');
+    }
+  } else if (platform === 'android') {
+    lines.push(navigator.vibrate ? '手機應該有震動。' : '這個瀏覽器不支援震動。');
+    if (perm !== 'granted') lines.push('系統通知沒有開啟，請在瀏覽器的網站設定裡允許通知。');
+  } else if (perm !== 'granted') {
+    lines.push('系統通知沒有開啟，請在瀏覽器的網站設定裡允許通知。');
+  }
+  $('testNote').textContent = lines.join('\n');
+  $('testNote').classList.remove('hidden');
+};
 
 // ---------- 一般通知（連假、早鳥、開賣） ----------
 const IRS_URL = 'https://irs.thsrc.com.tw/IMINT/';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-function chime() {
-  try {
-    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
-    [[660, 0], [990, 0.18]].forEach(([freq, t]) => {
-      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-      o.frequency.value = freq; o.connect(g); g.connect(audioCtx.destination);
-      g.gain.setValueAtTime(0.2, audioCtx.currentTime + t);
-      g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + t + 0.3);
-      o.start(audioCtx.currentTime + t); o.stop(audioCtx.currentTime + t + 0.32);
-    });
-  } catch {}
-}
 // items: [{ text, url?, date? }]；date 會多一個「帶入查詢」按鈕
 function notice(title, items) {
   const list = $('noticeList');
@@ -763,11 +846,6 @@ function useDate(date) {
   $('date').value = date; saveForm(); updateFreqNote(); updateDateHint();
   $('formCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
-// 瀏覽器規定要先有使用者操作，才能播放聲音、詢問通知權限
-document.addEventListener('click', () => {
-  try { audioCtx ||= new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); } catch {}
-  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
-}, { once: true });
 
 let seen;
 try { seen = new Set(JSON.parse(localStorage.getItem('thsr-seen') || '[]')); } catch { seen = new Set(); }
@@ -943,8 +1021,10 @@ function startWatch() {
   let f; try { f = readForm(); } catch (e) { $('formErr').textContent = e.message; return; }
   $('formErr').textContent = '';
   if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
-  try { audioCtx ||= new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); } catch {}
-  keepAwake();
+  unlockAudio();
+  keepAwake().then((ok) => {
+    if (!ok && isMobile) log('無法讓螢幕保持常亮：螢幕自動鎖定後監看會暫停。iPhone 可到「設定 → 螢幕顯示與亮度 → 自動鎖定」改成「永不」，監看完再改回來', true);
+  });
   watching = true; watchForm = f;
   $('startBtn').classList.add('hidden'); $('stopBtn').classList.remove('hidden');
   $('formCard').querySelectorAll('input,select,#swapBtn,#onceBtn').forEach((el) => { el.disabled = true; });
